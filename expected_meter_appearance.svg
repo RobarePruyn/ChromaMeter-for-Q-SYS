@@ -1,0 +1,68 @@
+<svg viewBox="0 0 720 540" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <title>Expected Custom Level Meter appearance — single Meter control, layer-gradient CSS</title>
+
+  <rect x="0" y="0" width="720" height="540" fill="#091F2C"/>
+
+  <text x="360" y="38" text-anchor="middle" fill="#FFFFFF" font-size="16" font-weight="700" letter-spacing="3">EXPECTED METER APPEARANCE</text>
+  <text x="360" y="58" text-anchor="middle" fill="#64CCC9" font-size="11" letter-spacing="2">one Meter control · fixed color bands via layer-gradient CSS · brand-customizable</text>
+
+  <!-- Widget 1: Quiet (-45 dB) -->
+  <g transform="translate(120, 100)">
+    <text x="20" y="-12" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="700" letter-spacing="2">QUIET</text>
+    <text x="20" y="-1" text-anchor="middle" fill="#888" font-size="9">−45 dB</text>
+    <rect x="12" y="0" width="16" height="5" fill="#0d2533"/>
+    <rect x="10" y="10" width="20" height="324" fill="#0d2533" rx="2"/>
+    <!-- fill (clipped to ~25% from bottom) reveals only bottom of gradient = teal -->
+    <rect x="12" y="278" width="16" height="56" fill="#64CCC9"/>
+    <text x="20" y="350" text-anchor="middle" fill="#DCDCDC" font-size="10" font-weight="600">−45.2 dB</text>
+    <text x="20" y="364" text-anchor="middle" fill="#A0A0A0" font-size="10">−48.1 dB</text>
+  </g>
+
+  <!-- Widget 2: Normal (-15 dB) -->
+  <g transform="translate(280, 100)">
+    <text x="20" y="-12" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="700" letter-spacing="2">NORMAL</text>
+    <text x="20" y="-1" text-anchor="middle" fill="#888" font-size="9">−15 dB</text>
+    <rect x="12" y="0" width="16" height="5" fill="#FFFFFF"/>
+    <rect x="10" y="10" width="20" height="324" fill="#0d2533" rx="2"/>
+    <!-- fill to ~75%: reveals teal band + into green band -->
+    <rect x="12" y="92" width="16" height="16" fill="#5DCAA5"/>
+    <rect x="12" y="108" width="16" height="226" fill="#64CCC9"/>
+    <text x="20" y="350" text-anchor="middle" fill="#DCDCDC" font-size="10" font-weight="600">−15.3 dB</text>
+    <text x="20" y="364" text-anchor="middle" fill="#A0A0A0" font-size="10">−18.7 dB</text>
+  </g>
+
+  <!-- Widget 3: Hot (-3 dB) -->
+  <g transform="translate(440, 100)">
+    <text x="20" y="-12" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="700" letter-spacing="2">HOT</text>
+    <text x="20" y="-1" text-anchor="middle" fill="#888" font-size="9">−3 dB</text>
+    <rect x="12" y="0" width="16" height="5" fill="#FFFFFF"/>
+    <rect x="10" y="10" width="20" height="324" fill="#0d2533" rx="2"/>
+    <!-- fill to ~95%: all three bands visible at fixed heights -->
+    <rect x="12" y="28" width="16" height="32" fill="#CB333B"/>
+    <rect x="12" y="60" width="16" height="48" fill="#5DCAA5"/>
+    <rect x="12" y="108" width="16" height="226" fill="#64CCC9"/>
+    <text x="20" y="350" text-anchor="middle" fill="#DCDCDC" font-size="10" font-weight="600">−3.2 dB</text>
+    <text x="20" y="364" text-anchor="middle" fill="#A0A0A0" font-size="10">−6.8 dB</text>
+  </g>
+
+  <!-- Widget 4: Custom-branded amber palette -->
+  <g transform="translate(600, 100)">
+    <text x="20" y="-12" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="700" letter-spacing="2">BRANDED</text>
+    <text x="20" y="-1" text-anchor="middle" fill="#888" font-size="9">custom hex</text>
+    <rect x="12" y="0" width="16" height="5" fill="#FFFFFF"/>
+    <rect x="10" y="10" width="20" height="324" fill="#0d2533" rx="2"/>
+    <rect x="12" y="80" width="16" height="28" fill="#FFA351"/>
+    <rect x="12" y="108" width="16" height="226" fill="#FFD23F"/>
+    <text x="20" y="350" text-anchor="middle" fill="#DCDCDC" font-size="10" font-weight="600">−10.5 dB</text>
+    <text x="20" y="364" text-anchor="middle" fill="#A0A0A0" font-size="10">−14.2 dB</text>
+  </g>
+
+  <!-- Notes -->
+  <g transform="translate(40, 452)" fill="#FFFFFF" font-size="11">
+    <rect x="-10" y="-30" width="640" height="82" fill="#0d2533" stroke="#1a3344" rx="4"/>
+    <text x="0" y="-12" font-weight="700" fill="#64CCC9" letter-spacing="1">KEY POINTS</text>
+    <text x="0" y="6" fill="#DCDCDC">·  The bar is ONE native Meter control fed directly by audio (no internal meter2, no wiring table).</text>
+    <text x="0" y="22" fill="#DCDCDC">·  Fixed color bands come from a UCI stylesheet: -qsc-render-style: layer + a linear-gradient indicator.</text>
+    <text x="0" y="38" fill="#DCDCDC">·  Re-brand by swapping the gradient hex stops. Needs the layer-gradient renderer (see README firmware note).</text>
+  </g>
+</svg>

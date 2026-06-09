@@ -1,0 +1,633 @@
+--[[
+================================================================================
+Mediacast Custom Level Meter
+A configurable, brand-styleable audio level meter for Q-SYS Designer UCIs.
+
+ARCHITECTURE (read this before editing):
+
+Audio cannot enter a plugin through a control pin. A control declared in
+GetControls with UserPin = true produces a CONTROL pin (control data only);
+audio pins exist only via GetPins, and audio can only terminate inside the
+plugin at an internal component declared in GetComponents and connected with
+GetWiring. (v1 of this plugin got that wrong and shipped with no audio pin
+at all.)
+
+The signal path is therefore:
+
+  [Input audio pin] --GetWiring--> [internal meter2 component]
+                                          |
+                              runtime script reads its true
+                              peak / RMS level controls
+                                          |
+                                          v
+  LevelMeter (script-driven bar) + PeakDB / RMSDB text + PeakHold LED
+
+  * LevelMeter  - a Knob control rendered as a Meter (the idiom QSC's own
+                  Shure MXW plugin uses for script-driven bars). The script
+                  writes the live peak dB to its Value each tick. On a UCI
+                  this single control IS the visible bar; its color zones
+                  come from CSS.
+  * PeakDB      - text readout of the true peak level.
+  * RMSDB       - text readout of the true RMS level (from the meter2
+                  component; falls back to a script-side moving average if
+                  the RMS control name probe fails - see below).
+  * PeakHold    - boolean indicator, lit while a recent peak is being held.
+
+The compelling, branded look lives in a UCI stylesheet (see README.md). The
+Min/Max dB range here defines how the level maps to the bar's 0..1 fill,
+which the stylesheet's :value() breakpoints key off of. The zone
+threshold/color properties seed the schematic preview and the example
+stylesheet; to re-brand the live panel you edit the CSS, not these
+properties.
+
+BENCH-VERIFICATION NOTE (the one undocumented fact): the meter2 component's
+runtime control names ("meter.1" vs "peak.1" etc.) are not published in any
+QSC doc we could find. On startup the script probes a list of candidate
+names and prints what it found to the debug console (ShowDebug is on for
+this reason). If the probe misses, the meter floor is shown and the debug
+output says exactly which names were tried - check the console on first
+bench run and extend PEAK_CONTROL_CANDIDATES / RMS_CONTROL_CANDIDATES if
+needed.
+
+This plugin is brand-agnostic; the first deployment is a soccer training
+facility, but no venue-specific assumptions are baked in.
+================================================================================
+--]]
+
+PluginInfo = {
+  Name = "Mediacast~Custom Level Meter",
+  Version = "2.0.0",
+  Id = "b4e2c8f1-9d3a-4f7e-a5b2-3c1d8e9f6a4b",
+  Author = "Mediacast Network Solutions",
+  Description = "Brand-styleable audio level meter: audio pin into an internal true peak/RMS meter, script-driven bar with dB readouts and peak hold, default CSS classes for UCI styling. Color zones are applied via a UCI stylesheet.",
+  ShowDebug = true,  -- keep on: the control-name probe reports through the debug console
+  Type = Reflect and Reflect.Types.AudioIO or 0
+}
+
+-- ----------------------------------------------------------------------------
+-- GetColor()
+-- Background tint of the plugin's schematic block. Neutral dark so the
+-- preview bar stands out. Does not affect the UCI.
+-- ----------------------------------------------------------------------------
+function GetColor(props)
+  return { 32, 32, 32 }
+end
+
+-- ----------------------------------------------------------------------------
+-- hex_to_rgb(hex_string)
+-- Parses a "#RRGGBB" hex string into the { r, g, b } triple the schematic
+-- layout Color attribute expects. Plugin properties have no native color
+-- type, so zone colors are stored as strings. Falls back to mid-gray on bad
+-- input so the schematic preview always renders something.
+-- ----------------------------------------------------------------------------
+function hex_to_rgb(hex_string)
+  local fallback_color = { 128, 128, 128 }
+  if type(hex_string) ~= "string" then
+    return fallback_color
+  end
+
+  local cleaned_hex = hex_string:gsub("^#", "")
+  if #cleaned_hex ~= 6 then
+    return fallback_color
+  end
+
+  local red_value = tonumber(cleaned_hex:sub(1, 2), 16)
+  local green_value = tonumber(cleaned_hex:sub(3, 4), 16)
+  local blue_value = tonumber(cleaned_hex:sub(5, 6), 16)
+  if red_value == nil or green_value == nil or blue_value == nil then
+    return fallback_color
+  end
+
+  return { red_value, green_value, blue_value }
+end
+
+-- ----------------------------------------------------------------------------
+-- GetPrettyName()
+-- Display name in the schematic. Kept short so dense designs stay legible.
+-- ----------------------------------------------------------------------------
+function GetPrettyName(props)
+  return "Custom Level Meter"
+end
+
+-- ============================================================================
+-- PROPERTIES
+-- Shown in the Properties pane when the plugin is selected. Min/Max dB drive
+-- the meter's live behavior; the zone threshold/color properties seed the
+-- schematic preview and the example UCI stylesheet (the live panel look is
+-- set in CSS, not here).
+-- ============================================================================
+function GetProperties()
+  local properties = {}
+
+  -- Bottom of the meter scale in dBFS. Audio at or below this reads as an
+  -- empty bar. Drives the 0..1 normalization the UCI stylesheet keys off of.
+  table.insert(properties, {
+    Name = "Min dB",
+    Type = "double",
+    Min = -100,
+    Max = 0,
+    Value = -60
+  })
+
+  -- Top of the meter scale in dBFS. Audio at or above this reads as a full
+  -- bar. Constrained greater than Min dB by RectifyProperties.
+  table.insert(properties, {
+    Name = "Max dB",
+    Type = "double",
+    Min = -10,
+    Max = 20,
+    Value = 0
+  })
+
+  -- Enables the peak hold indicator. When off, PeakHold stays dark and its
+  -- latch is reset every tick.
+  table.insert(properties, {
+    Name = "Peak Hold Enabled",
+    Type = "boolean",
+    Value = false
+  })
+
+  -- Seconds a peak is held before it begins to decay back toward the live
+  -- level. Only meaningful when Peak Hold Enabled is true.
+  table.insert(properties, {
+    Name = "Peak Hold Time",
+    Type = "double",
+    Min = 0.0,
+    Max = 10.0,
+    Value = 1.5
+  })
+
+  -- Percentage of the meter range where the warning zone begins. Used to
+  -- seed the example stylesheet's first :value() breakpoint and the
+  -- schematic preview. Constrained below Zone 2 Threshold by
+  -- RectifyProperties.
+  table.insert(properties, {
+    Name = "Zone 1 Threshold %",
+    Type = "integer",
+    Min = 0,
+    Max = 100,
+    Value = 70
+  })
+
+  -- Percentage of the meter range where the clipping zone begins.
+  table.insert(properties, {
+    Name = "Zone 2 Threshold %",
+    Type = "integer",
+    Min = 0,
+    Max = 100,
+    Value = 85
+  })
+
+  -- Nominal-level color (default teal). Seeds the stylesheet and preview.
+  -- Stored as a "#RRGGBB" hex string (no native color property type).
+  table.insert(properties, {
+    Name = "Zone 1 Color",
+    Type = "string",
+    Value = "#64CCC9"
+  })
+
+  -- Warning-level color (default green-teal).
+  table.insert(properties, {
+    Name = "Zone 2 Color",
+    Type = "string",
+    Value = "#5DCAA5"
+  })
+
+  -- Clipping-level color (default red).
+  table.insert(properties, {
+    Name = "Zone 3 Color",
+    Type = "string",
+    Value = "#CB333B"
+  })
+
+  return properties
+end
+
+-- ----------------------------------------------------------------------------
+-- RectifyProperties()
+-- Enforces cross-property constraints the per-field Min/Max cannot express.
+-- Called by Designer whenever a property changes.
+-- ----------------------------------------------------------------------------
+function RectifyProperties(props)
+  -- Max dB must exceed Min dB or the 0..1 normalization breaks. Snap it up.
+  if props["Max dB"].Value <= props["Min dB"].Value then
+    props["Max dB"].Value = props["Min dB"].Value + 1
+  end
+
+  -- Zone 2 threshold must sit above Zone 1 threshold so the zone ordering
+  -- stays coherent. Push Zone 2 up, keeping both inside [0, 100].
+  if props["Zone 2 Threshold %"].Value <= props["Zone 1 Threshold %"].Value then
+    if props["Zone 1 Threshold %"].Value >= 99 then
+      props["Zone 1 Threshold %"].Value = 99
+      props["Zone 2 Threshold %"].Value = 100
+    else
+      props["Zone 2 Threshold %"].Value = props["Zone 1 Threshold %"].Value + 1
+    end
+  end
+
+  return props
+end
+
+-- ============================================================================
+-- PINS / COMPONENTS / WIRING
+-- The audio path: one audio input pin, wired into an internal meter2
+-- (True Peak/RMS Meter, dBFS) component. The runtime script reads the
+-- meter's level controls; nothing else touches the audio.
+-- ============================================================================
+
+-- One mono audio input pin. (Pins from GetPins are audio-domain by default.)
+function GetPins(props)
+  local pins = {}
+  table.insert(pins, {
+    Name = "Input",
+    Direction = "input"
+  })
+  return pins
+end
+
+-- Internal True Peak/RMS Meter. Properties are left at component defaults
+-- (mono, true peak/RMS mode) - fewer hardcoded property values means fewer
+-- compile-time surprises, and the defaults are exactly what we need.
+function GetComponents(props)
+  local components = {}
+  table.insert(components, {
+    Name = "level_meter",
+    Type = "meter2",
+    Properties = {}
+  })
+  return components
+end
+
+-- Wire the plugin's Input pin to the meter's first (only) channel. If this
+-- line fails to compile on a Designer version, the likely fix is the pin
+-- spelling: try "level_meter Input" (no channel number) for the mono meter.
+function GetWiring(props)
+  local wiring = {}
+  table.insert(wiring, { "Input", "level_meter Input 1" })
+  return wiring
+end
+
+-- ============================================================================
+-- CONTROLS
+-- Every control is a user pin so it can be placed on a UCI and styled via
+-- CSS. LevelMeter is a Knob driven by the script and *rendered* as a meter
+-- (the same idiom QSC's Shure MXW plugin uses for its AudioLevel bars);
+-- its Min/Max give the UCI the dB-to-0..1 fill mapping.
+-- ============================================================================
+function GetControls(props)
+  local controls = {}
+
+  local min_db = props["Min dB"].Value
+  local max_db = props["Max dB"].Value
+
+  -- The visible bar. The runtime writes the live peak dB to its Value; the
+  -- Min/Max here set the dB-to-fill mapping the UCI stylesheet's :value()
+  -- breakpoints rely on. Default CSS class "meter-bar" follows it onto the
+  -- UCI (if the firmware honors layout CssClass - see README).
+  table.insert(controls, {
+    Name = "LevelMeter",
+    ControlType = "Knob",
+    ControlUnit = "Float",
+    Min = min_db,
+    Max = max_db,
+    Count = 1,
+    UserPin = true,
+    PinStyle = "Output"
+  })
+
+  -- True peak level as text, e.g. "-12.4 dB".
+  table.insert(controls, {
+    Name = "PeakDB",
+    ControlType = "Indicator",
+    IndicatorType = "Text",
+    Count = 1,
+    UserPin = true,
+    PinStyle = "Output"
+  })
+
+  -- True RMS level as text (script-side moving average if the RMS control
+  -- probe fails; see the bench-verification note at the top of this file).
+  table.insert(controls, {
+    Name = "RMSDB",
+    ControlType = "Indicator",
+    IndicatorType = "Text",
+    Count = 1,
+    UserPin = true,
+    PinStyle = "Output"
+  })
+
+  -- Lit while a recent peak is inside its hold window (Peak Hold Enabled
+  -- only).
+  table.insert(controls, {
+    Name = "PeakHold",
+    ControlType = "Indicator",
+    IndicatorType = "Led",
+    Count = 1,
+    UserPin = true,
+    PinStyle = "Output"
+  })
+
+  return controls
+end
+
+-- ============================================================================
+-- CONTROL LAYOUT
+-- Styles the plugin's block in the Designer SCHEMATIC only. This is a
+-- representative preview (a single colored bar plus readouts); the real,
+-- branded, zoned appearance is applied with CSS on the UCI. See README.md.
+-- ============================================================================
+function GetControlLayout(props)
+  local layout = {}
+  local graphics = {}
+
+  -- Nominal color used for the preview bar. The live UCI bar is recolored
+  -- by the stylesheet as the level crosses the zone thresholds.
+  local preview_color = hex_to_rgb(props["Zone 1 Color"].Value)
+  local track_color = { 13, 37, 51 }
+
+  local bar_width = 18
+  local bar_height = 200
+  local bar_x = 24
+  local bar_y = 30
+
+  -- Dark track behind the preview bar.
+  table.insert(graphics, {
+    Type = "GroupBox",
+    Text = "",
+    Position = { bar_x - 3, bar_y - 3 },
+    Size = { bar_width + 6, bar_height + 6 },
+    StrokeColor = track_color,
+    Fill = track_color,
+    CornerRadius = 2
+  })
+
+  -- The meter bar preview: a Knob control drawn as a level meter.
+  layout["LevelMeter"] = {
+    Style = "Meter",
+    MeterStyle = "Level",
+    ShowTextBox = false,
+    Color = preview_color,
+    OffColor = track_color,
+    Position = { bar_x, bar_y },
+    Size = { bar_width, bar_height },
+    CssClass = "meter-bar"
+  }
+
+  -- Peak hold indicator above the bar.
+  layout["PeakHold"] = {
+    Style = "Led",
+    Color = { 255, 255, 255 },
+    OffColor = track_color,
+    Position = { bar_x, bar_y - 14 },
+    Size = { bar_width, 8 },
+    CssClass = "meter-peak-hold"
+  }
+
+  -- Readouts beside the bar so the schematic block stays compact.
+  local readout_x = bar_x + bar_width + 12
+  layout["PeakDB"] = {
+    Style = "Text",
+    HTextAlign = "Left",
+    Position = { readout_x, bar_y + 4 },
+    Size = { 86, 16 },
+    Color = { 220, 220, 220 },
+    CssClass = "meter-readout"
+  }
+
+  layout["RMSDB"] = {
+    Style = "Text",
+    HTextAlign = "Left",
+    Position = { readout_x, bar_y + 24 },
+    Size = { 86, 16 },
+    Color = { 160, 160, 160 },
+    CssClass = "meter-readout"
+  }
+
+  -- Title label for the schematic block.
+  table.insert(graphics, {
+    Type = "Text",
+    Text = "Level Meter",
+    Position = { bar_x - 3, bar_y + bar_height + 8 },
+    Size = { 140, 16 },
+    FontSize = 11,
+    HTextAlign = "Left",
+    Color = { 200, 200, 200 }
+  })
+
+  return layout, graphics
+end
+
+-- ============================================================================
+-- RUNTIME
+-- Runs inside the live design. Internal components from GetComponents are
+-- exposed to this script as globals named after their component Name,
+-- indexed by control-name strings (e.g. level_meter["meter.1"].Value) -
+-- the same access pattern QSC's plugin examples use for internal mixers.
+--
+-- On startup we probe candidate control names for the meter's peak and RMS
+-- levels (the names are undocumented; see the note at the top of the file)
+-- and report the result to the debug console. Each 30 Hz tick reads the
+-- levels, drives the bar, refreshes the text readouts (rate-limited to
+-- ~10 Hz and only on change, so idle signal doesn't spam control updates
+-- to every connected UCI), and maintains the peak hold latch.
+-- ============================================================================
+if Controls then
+
+  -- Snapshot property values. Static for the running design's lifetime.
+  local min_db = Properties["Min dB"].Value
+  local max_db = Properties["Max dB"].Value
+  local peak_hold_enabled = Properties["Peak Hold Enabled"].Value
+  local peak_hold_time = Properties["Peak Hold Time"].Value
+
+  -- --------------------------------------------------------------------
+  -- Control-name probe for the internal meter2 component.
+  -- Candidates are ordered by likelihood based on Q-SYS component naming
+  -- conventions ("meter.N" is the widely reported name for meter levels).
+  -- Extend these lists if the debug console reports no match.
+  -- --------------------------------------------------------------------
+  local PEAK_CONTROL_CANDIDATES = {
+    "meter.1", "peak.1", "peak.level.1", "level.1", "meter", "peak.level"
+  }
+  local RMS_CONTROL_CANDIDATES = {
+    "rms.1", "rms.level.1", "rms.meter.1", "meter.rms.1", "rms", "rms.level"
+  }
+
+  -- Returns (name, control) for the first candidate that exists on the
+  -- internal meter and yields a numeric Value, else (nil, nil). All access
+  -- is pcall-guarded: a missing control must degrade, never crash the
+  -- script.
+  local function find_meter_control(candidate_names)
+    for _, candidate_name in ipairs(candidate_names) do
+      local read_ok, value = pcall(function()
+        return level_meter[candidate_name].Value
+      end)
+      if read_ok and type(value) == "number" then
+        return candidate_name, level_meter[candidate_name]
+      end
+    end
+    return nil, nil
+  end
+
+  local peak_control_name, peak_control = find_meter_control(PEAK_CONTROL_CANDIDATES)
+  local rms_control_name, rms_control = find_meter_control(RMS_CONTROL_CANDIDATES)
+
+  if peak_control_name then
+    print("Custom Level Meter: peak level control = '" .. peak_control_name .. "'")
+  else
+    print("Custom Level Meter: WARNING - no peak level control found on internal "
+      .. "meter2. Tried: " .. table.concat(PEAK_CONTROL_CANDIDATES, ", ")
+      .. ". Bar will sit at the meter floor; extend PEAK_CONTROL_CANDIDATES.")
+  end
+  if rms_control_name then
+    print("Custom Level Meter: RMS level control = '" .. rms_control_name .. "'")
+  else
+    print("Custom Level Meter: no RMS control found (tried: "
+      .. table.concat(RMS_CONTROL_CANDIDATES, ", ")
+      .. "). RMSDB falls back to a script-side moving average of peak.")
+  end
+
+  -- Smoothing factor for the RMS fallback moving average. Higher =
+  -- smoother / slower. 0.2 gives a gentle ballistic at 30 Hz.
+  local rms_smoothing_factor = 0.2
+  local smoothed_level_db = min_db
+
+  -- Peak hold state: the held dB value and when it was last set, for decay.
+  local peak_hold_db = min_db
+  local peak_hold_set_time = 0
+  local peak_hold_active = false
+
+  -- Rate limiting state: text readouts update every 3rd tick (~10 Hz) and
+  -- only when the formatted string actually changed; the bar only when the
+  -- level moved visibly.
+  local tick_count = 0
+  local last_bar_db = nil
+  local last_peak_text = nil
+  local last_rms_text = nil
+
+  -- ----------------------------------------------------------------------
+  -- read_clock_seconds()
+  -- Monotonic-enough seconds for peak-hold decay timing. Timer.Now()
+  -- (epoch seconds; documented Q-SYS API) where present, os.time() as a
+  -- portable fallback.
+  -- ----------------------------------------------------------------------
+  local function read_clock_seconds()
+    if Timer and Timer.Now then
+      return Timer.Now()
+    end
+    return os.time()
+  end
+
+  -- ----------------------------------------------------------------------
+  -- read_control_db(control)
+  -- Reads a level control from the internal meter, floored at Min dB so a
+  -- silent input (or a failed read) shows the meter floor rather than a
+  -- stale or absent value.
+  -- ----------------------------------------------------------------------
+  local function read_control_db(control)
+    if control == nil then
+      return min_db
+    end
+    local read_ok, current_value = pcall(function()
+      return control.Value
+    end)
+    if not read_ok or type(current_value) ~= "number" then
+      return min_db
+    end
+    if current_value < min_db then
+      return min_db
+    end
+    return current_value
+  end
+
+  -- ----------------------------------------------------------------------
+  -- update_peak_hold(live_db, current_time)
+  -- Latches the held peak up to any new high, then decays it gradually
+  -- once Peak Hold Time has elapsed without a new high. The LED is lit
+  -- only while a held peak is inside its hold window - so it pulses on
+  -- peaks and clears, rather than staying lit through ongoing program.
+  -- ----------------------------------------------------------------------
+  local function update_peak_hold(live_db, current_time)
+    -- Strictly-greater latch: steady program at a constant level latches
+    -- once and is then allowed to expire, instead of re-latching forever.
+    if live_db > peak_hold_db then
+      peak_hold_db = live_db
+      peak_hold_set_time = current_time
+      peak_hold_active = true
+      return
+    end
+
+    local seconds_since_peak = current_time - peak_hold_set_time
+    if seconds_since_peak >= peak_hold_time then
+      peak_hold_active = false
+      -- Ease down toward the live level after the hold expires.
+      peak_hold_db = peak_hold_db - 1
+      if peak_hold_db < live_db then
+        peak_hold_db = live_db
+      end
+    end
+  end
+
+  -- ----------------------------------------------------------------------
+  -- update_meter()
+  -- One timer tick: read levels, drive the bar, refresh the readouts
+  -- (rate-limited), run peak hold.
+  -- ----------------------------------------------------------------------
+  local function update_meter()
+    tick_count = tick_count + 1
+
+    local live_level_db = read_control_db(peak_control)
+
+    -- The bar: write only when the level moved visibly (> 0.05 dB), so a
+    -- silent room costs no control traffic.
+    if last_bar_db == nil or math.abs(live_level_db - last_bar_db) > 0.05 then
+      Controls.LevelMeter.Value = live_level_db
+      last_bar_db = live_level_db
+    end
+
+    -- RMS: true value from the component when available, smoothed peak
+    -- otherwise.
+    local rms_level_db
+    if rms_control then
+      rms_level_db = read_control_db(rms_control)
+    else
+      smoothed_level_db = smoothed_level_db
+        + rms_smoothing_factor * (live_level_db - smoothed_level_db)
+      rms_level_db = smoothed_level_db
+    end
+
+    -- Text readouts at ~10 Hz, and only on change.
+    if tick_count % 3 == 0 then
+      local peak_text = string.format("%.1f dB", live_level_db)
+      if peak_text ~= last_peak_text then
+        Controls.PeakDB.String = peak_text
+        last_peak_text = peak_text
+      end
+      local rms_text = string.format("%.1f dB", rms_level_db)
+      if rms_text ~= last_rms_text then
+        Controls.RMSDB.String = rms_text
+        last_rms_text = rms_text
+      end
+    end
+
+    if peak_hold_enabled then
+      update_peak_hold(live_level_db, read_clock_seconds())
+      Controls.PeakHold.Boolean = peak_hold_active
+    else
+      peak_hold_db = min_db
+      peak_hold_active = false
+      Controls.PeakHold.Boolean = false
+    end
+  end
+
+  -- 30 Hz update timer (~33 ms). Smooth bar motion without taxing the Core.
+  local update_timer = Timer.New()
+  update_timer.EventHandler = update_meter
+  update_timer:Start(0.033)
+
+  -- Prime the controls so they show sensible defaults before the first tick.
+  Controls.LevelMeter.Value = min_db
+  Controls.PeakDB.String = string.format("%.1f dB", min_db)
+  Controls.RMSDB.String = string.format("%.1f dB", min_db)
+  Controls.PeakHold.Boolean = false
+
+end
