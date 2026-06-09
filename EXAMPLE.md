@@ -1,6 +1,6 @@
-# Example: Dropping the Custom Level Meter into a Design
+# Example: Dropping the ChromaMeter into a Design
 
-Assumes `CustomLevelMeter.qplug` is in your Q-SYS Plugins folder and Designer
+Assumes `ChromaMeter.qplug` is in your Q-SYS Plugins folder and Designer
 has been restarted.
 
 ## Scenario
@@ -13,7 +13,7 @@ teal / green / red zones and a peak-hold light.
 
 1. Open or create a design.
 2. In the schematic library, expand **User Plugins**.
-3. Drag **Mediacast~Custom Level Meter** onto the schematic. It renders as a
+3. Drag **Mediacast~ChromaMeter** onto the schematic. It renders as a
    compact block with a preview bar, a peak-hold indicator, and two dB
    readouts.
 
@@ -42,7 +42,7 @@ The plugin block has one mono **audio input pin** named **Input**. Wire your
 program bus straight to it:
 
 ```
-[ Matrix Mixer ]──output 1──▶ Input   [ Mediacast~Custom Level Meter ]
+[ Matrix Mixer ]──output 1──▶ Input   [ Mediacast~ChromaMeter ]
 ```
 
 No real source yet? Drop a **Tone Generator** or **Audio File Player** and
@@ -95,7 +95,7 @@ To re-brand for another venue, change the three zone hex values.
 2. Run or emulate (F5).
 3. **Check the debug console.** The plugin reports which internal meter
    controls its startup probe found, e.g.
-   `Custom Level Meter: peak level control = 'meter.1'`. A WARNING line
+   `ChromaMeter: peak level control = 'meter.1'`. A WARNING line
    means the probe missed — see the README's "meter2 control-name probe"
    section for the two-minute fix.
 4. Play audio. The bar should fill bottom-up; teal / green / red bands sit at

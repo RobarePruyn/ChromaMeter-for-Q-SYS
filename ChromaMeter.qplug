@@ -1,6 +1,6 @@
 --[[
 ================================================================================
-Mediacast Custom Level Meter
+Mediacast ChromaMeter
 A configurable, brand-styleable audio level meter for Q-SYS Designer UCIs.
 
 ARCHITECTURE (read this before editing):
@@ -55,7 +55,7 @@ facility, but no venue-specific assumptions are baked in.
 --]]
 
 PluginInfo = {
-  Name = "Mediacast~Custom Level Meter",
+  Name = "Mediacast~ChromaMeter",
   Version = "2.0.0",
   Id = "b4e2c8f1-9d3a-4f7e-a5b2-3c1d8e9f6a4b",
   Author = "Mediacast Network Solutions",
@@ -106,7 +106,7 @@ end
 -- Display name in the schematic. Kept short so dense designs stay legible.
 -- ----------------------------------------------------------------------------
 function GetPrettyName(props)
-  return "Custom Level Meter"
+  return "ChromaMeter"
 end
 
 -- ============================================================================
@@ -472,16 +472,16 @@ if Controls then
   local rms_control_name, rms_control = find_meter_control(RMS_CONTROL_CANDIDATES)
 
   if peak_control_name then
-    print("Custom Level Meter: peak level control = '" .. peak_control_name .. "'")
+    print("ChromaMeter: peak level control = '" .. peak_control_name .. "'")
   else
-    print("Custom Level Meter: WARNING - no peak level control found on internal "
+    print("ChromaMeter: WARNING - no peak level control found on internal "
       .. "meter2. Tried: " .. table.concat(PEAK_CONTROL_CANDIDATES, ", ")
       .. ". Bar will sit at the meter floor; extend PEAK_CONTROL_CANDIDATES.")
   end
   if rms_control_name then
-    print("Custom Level Meter: RMS level control = '" .. rms_control_name .. "'")
+    print("ChromaMeter: RMS level control = '" .. rms_control_name .. "'")
   else
-    print("Custom Level Meter: no RMS control found (tried: "
+    print("ChromaMeter: no RMS control found (tried: "
       .. table.concat(RMS_CONTROL_CANDIDATES, ", ")
       .. "). RMSDB falls back to a script-side moving average of peak.")
   end

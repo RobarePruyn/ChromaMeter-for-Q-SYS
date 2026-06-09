@@ -1,10 +1,10 @@
-# Mediacast Custom Level Meter
+# Mediacast ChromaMeter
 
 A brand-styleable audio level meter for Q-SYS Designer UCIs. Reusable across
 venue audio projects; the first deployment is a soccer training facility, but
 nothing venue-specific is baked in.
 
-- **Plugin file:** `CustomLevelMeter.qplug`
+- **Plugin file:** `ChromaMeter.qplug`
 - **Author:** Mediacast Network Solutions
 - **Version:** 2.0.0
 - **Plugin Id:** `b4e2c8f1-9d3a-4f7e-a5b2-3c1d8e9f6a4b`
@@ -51,7 +51,7 @@ so the property thresholds and the CSS breakpoints line up.
 
 ## Installation
 
-Copy `CustomLevelMeter.qplug` into your Q-SYS user plugins folder:
+Copy `ChromaMeter.qplug` into your Q-SYS user plugins folder:
 
 | OS      | Path                                                     |
 | ------- | ------------------------------------------------------- |
@@ -59,7 +59,7 @@ Copy `CustomLevelMeter.qplug` into your Q-SYS user plugins folder:
 | macOS   | `~/Documents/QSC/Q-Sys Designer/Plugins/`               |
 
 Restart Q-SYS Designer. The plugin appears in the schematic library as
-**Mediacast~Custom Level Meter**.
+**Mediacast~ChromaMeter**.
 
 ---
 
@@ -71,7 +71,7 @@ Meter (`meter2`) component; the script reads that meter's levels and drives
 the visible controls.
 
 ```
-[ Program Bus ]──▶ Input (audio)   [ Mediacast~Custom Level Meter ]
+[ Program Bus ]──▶ Input (audio)   [ Mediacast~ChromaMeter ]
 ```
 
 > The LevelMeter *control* pin on the block is an **output** (the live peak
@@ -233,7 +233,7 @@ red as it gets louder) — not simultaneous bands, but reliable.
 
 ## Verification / test procedure
 
-1. Drop **Mediacast~Custom Level Meter** into a design. (If the design
+1. Drop **Mediacast~ChromaMeter** into a design. (If the design
    fails to compile naming the wiring, see the **meter2 control-name probe**
    note below — the same section covers the wiring pin spelling.)
 2. Wire an audio source (oscillator, file player, or live input) to the
@@ -244,7 +244,7 @@ red as it gets louder) — not simultaneous bands, but reliable.
 5. Save and run the design (or emulate).
 6. **Check the debug console first.** The plugin prints which internal
    meter controls its startup probe found, e.g.:
-   `Custom Level Meter: peak level control = 'meter.1'`. A WARNING line
+   `ChromaMeter: peak level control = 'meter.1'`. A WARNING line
    means the probe missed — see the probe note below.
 7. Play audio and confirm:
    - The bar fills bottom-up with level.
